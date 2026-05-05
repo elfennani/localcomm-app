@@ -1,0 +1,38 @@
+syntax = "proto3";
+package localcomm;
+
+service LocalComm {
+  rpc GetDeviceList (GetDeviceListRequest) returns (GetDeviceListResponse);
+  rpc TypeText (TextTypeRequest) returns (Empty);
+  rpc RunCommand (RunCommandRequest) returns (Empty);
+  rpc SendFile (stream SendFileRequest) returns (Empty);
+}
+
+message TextTypeRequest{
+  string text = 1;
+  bool submit = 2;
+}
+
+message Device{
+  string name = 1;
+  string address = 2;
+}
+
+message GetDeviceListRequest{}
+message GetDeviceListResponse{
+  repeated Device list = 1;
+}
+
+message RunCommandRequest{
+  string command = 1;
+}
+
+message SendFileRequest{
+  string name = 1;
+  uint64 position = 2;
+  uint64 size = 3;
+  bytes bytes = 4;
+  uint32 buffer_size = 5;
+}
+
+message Empty{}
