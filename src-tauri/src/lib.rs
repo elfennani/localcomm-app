@@ -9,6 +9,7 @@ use std::string::String;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tokio::signal::unix::{signal, SignalKind};
 
 mod core;
 mod server;
@@ -36,14 +37,38 @@ pub extern "system" fn Java_com_elfen_localcomm_app_MainActivity_hello<'caller>(
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let server = LocalCommServerApp::serve(Arc::default(), absolute_path.clone());
-            server.await.unwrap();
+            // let server = LocalCommServerApp::serve(Arc::default(), absolute_path.clone());
+            // server.await.unwrap();
+            // let mut service = LocalCommService::new("_localcomm._tcp.local.");
+            // service.start();
+
+            listen_signal().await;
         });
 
         JString::from_str(env, absolute_path.to_str().unwrap())
     });
 
     outcome.resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+async fn listen_signal() {
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sighup = signal(SignalKind::hangup()).unwrap();
+    let mut sigusr1 = signal(SignalKind::user_defined1()).unwrap();
+    let mut sigusr2 = signal(SignalKind::user_defined2()).unwrap();
+
+    println!("PID: {}", std::process::id());
+
+    loop {
+        tokio::select! {
+            _ = sigint.recv()  => println!("SIGINT"),
+            _ = sigterm.recv() => println!("SIGTERM"),
+            _ = sighup.recv()  => println!("SIGHUP"),
+            _ = sigusr1.recv() => println!("SIGUSR1"),
+            _ = sigusr2.recv() => println!("SIGUSR2"),
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -11,6 +11,13 @@ pub struct LocalCommService {
     pub devices: SharedLocalCommDeviceList,
 }
 
+/*
+Discovery seems to not function in Android devices, but broadcasting works fine,
+although it uses `localhost` as the device name.
+
+I take it back, it seems discovery works fine in physical Android devices but not emulator
+for some reason.
+ */
 impl LocalCommService {
     pub fn new(service_type: &str) -> Self {
         let mdns = Arc::new(ServiceDaemon::new().expect("Failed to create daemon"));
