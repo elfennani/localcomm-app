@@ -3,13 +3,14 @@ use crate::service::LocalCommService;
 use jni::objects::{JClass, JString};
 use jni::EnvUnowned;
 use serde::Serialize;
-use sqlx::{Connection, Executor, SqliteConnection};
+use sqlx::{Connection, Executor};
 use std::path::PathBuf;
 use std::string::String;
-use std::sync::Arc;
+use std::sync::OnceLock;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::signal::unix::{signal, SignalKind};
+use tokio_util::sync::CancellationToken;
 
 mod core;
 mod server;
@@ -25,30 +26,53 @@ struct AppData {
     welcome_message: &'static str,
 }
 
+static TOKEN: OnceLock<CancellationToken> = OnceLock::new();
+
 #[no_mangle]
-pub extern "system" fn Java_com_elfen_localcomm_app_MainActivity_hello<'caller>(
+pub extern "system" fn Java_com_elfen_localcomm_app_MainActivity_startService<'caller>(
     mut unowned_env: EnvUnowned<'caller>,
     _class: JClass,
-    absolutePath: JString<'caller>,
-) -> JString<'caller> {
+    download_path: JString<'caller>,
+    app_data_path: JString<'caller>,
+) {
     let outcome = unowned_env.with_env(|env| -> Result<_, jni::errors::Error> {
-        let absolute_path: String = absolutePath.to_string();
-        let absolute_path = PathBuf::from(absolute_path);
-
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            // let server = LocalCommServerApp::serve(Arc::default(), absolute_path.clone());
-            // server.await.unwrap();
-            // let mut service = LocalCommService::new("_localcomm._tcp.local.");
-            // service.start();
+            let token = CancellationToken::new();
+            TOKEN.set(token.clone()).ok();
 
-            listen_signal().await;
+            let download_path = PathBuf::from(download_path.to_string());
+            let _app_data_path = PathBuf::from(app_data_path.to_string());
+
+            let mut service = LocalCommService::new("_localcomm._tcp.local.");
+            service.start();
+
+            let server = LocalCommServerApp::serve(service.devices.clone(), download_path);
+
+            tokio::select! {
+                _ = server => {},
+                _ = token.cancelled() => {
+                    println!("Server terminated");
+                },
+            };
+
+            service.stop();
         });
 
-        JString::from_str(env, absolute_path.to_str().unwrap())
+        Ok(())
     });
 
     outcome.resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_elfen_localcomm_app_MainActivity_stopService(
+    mut _unowned_env: EnvUnowned,
+    _class: JClass,
+) {
+    if let Some(token) = TOKEN.get() {
+        token.cancel();
+    }
 }
 
 async fn listen_signal() {
