@@ -61,7 +61,11 @@ impl LocalCommService {
                 }
             });
 
-            let device_name = whoami::hostname().unwrap();
+            let mut device_name = whoami::hostname().unwrap();
+            if device_name == "localhost" {
+               device_name = "my_device".to_string();
+            }
+
             let instance_name = slugify!(&device_name, separator = "_");
             let ip = local_ip().unwrap().to_string();
             let host_name = format!("{}.local.", instance_name);
@@ -92,7 +96,10 @@ impl LocalCommService {
         let mdns = self.mdns.clone();
 
         let service_type = self.service_type.clone();
-        let device_name = slugify!(whoami::hostname().unwrap().as_str(), separator = "_");
+        let mut device_name = whoami::hostname().unwrap();
+        if device_name == "localhost" {
+            device_name = "my_device".to_string();
+        }
         let receiver = mdns.browse(&service_type).expect("Failed to browse");
         let device_list_mutex = self.devices.clone();
 

@@ -1,15 +1,16 @@
+use crate::server::localcomm::local_comm_client::LocalCommClient;
+use crate::server::localcomm::{GetDeviceListRequest, TextTypeRequest};
 use crate::server::LocalCommServerApp;
 use crate::service::LocalCommService;
 use jni::objects::{JClass, JString};
 use jni::EnvUnowned;
-use serde::Serialize;
-use sqlx::{Connection, Executor};
+use local_ip_address::local_ip;
+use std::error::Error;
 use std::path::PathBuf;
 use std::string::String;
-use std::sync::OnceLock;
-use tauri::{AppHandle, Manager};
-use tauri_plugin_sql::{Migration, MigrationKind};
-use tokio::signal::unix::{signal, SignalKind};
+use std::sync::{Mutex, OnceLock};
+use tauri::{generate_handler, AppHandle, Manager};
+use tauri::process::restart;
 use tokio_util::sync::CancellationToken;
 
 mod core;
@@ -17,13 +18,27 @@ mod server;
 mod service;
 
 #[tauri::command]
-fn discover(app: &AppHandle, name: &str) {
-    let app_data = app.state::<AppData>();
-    app_data.welcome_message;
+async fn test_discovery(text: &str) -> Result<(), ()> {
+    let ip = local_ip().unwrap();
+    let ip = "0.0.0.0";
+    println!("Sending text \"{}\" to {}:50051", text, ip.to_string());
+    let mut client = LocalCommClient::connect(format!("http://{}:50051", ip.to_string()))
+        .await
+        .unwrap();
+    let response = client
+        .get_device_list(GetDeviceListRequest {})
+        .await
+        .expect("Failed to send request");
+
+    response.into_inner().list.iter().for_each(|device| {
+        println!("Received device: {}", device.name);
+    });
+
+    Ok(())
 }
 
 struct AppData {
-    welcome_message: &'static str,
+    client: LocalCommClient<tonic::transport::Channel>,
 }
 
 static TOKEN: OnceLock<CancellationToken> = OnceLock::new();
@@ -75,65 +90,13 @@ pub extern "system" fn Java_com_elfen_localcomm_app_MainActivity_stopService(
     }
 }
 
-async fn listen_signal() {
-    let mut sigint = signal(SignalKind::interrupt()).unwrap();
-    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-    let mut sighup = signal(SignalKind::hangup()).unwrap();
-    let mut sigusr1 = signal(SignalKind::user_defined1()).unwrap();
-    let mut sigusr2 = signal(SignalKind::user_defined2()).unwrap();
-
-    println!("PID: {}", std::process::id());
-
-    loop {
-        tokio::select! {
-            _ = sigint.recv()  => println!("SIGINT"),
-            _ = sigterm.recv() => println!("SIGTERM"),
-            _ = sighup.recv()  => println!("SIGHUP"),
-            _ = sigusr1.recv() => println!("SIGUSR1"),
-            _ = sigusr2.recv() => println!("SIGUSR2"),
-        }
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "create_initial_tables",
-        sql: "\
-        CREATE TABLE devices (\
-            name TEXT NOT NULL PRIMARY KEY, \
-            ip TEXT NOT NULL, \
-            paired BOOLEAN NOT NULL DEFAULT FALSE \
-        );"
-        .trim(),
-        kind: MigrationKind::Up,
-    }];
-
-    // conn.execute("DELETE FROM devices WHERE paired = FALSE")
-    //     .await?;
-
-    // Spawn mDNS Service
-    // tokio::spawn(async {
-    //     let mut service = LocalCommService::new("_localcomm._tcp.local.");
-    //     service.start();
-    // });
-
+pub fn run() {
     tauri::Builder::default()
-        // .manage(AppData {
-        //     welcome_message: "Welcome to Tauri!",
-        // })
-        .plugin(
-            tauri_plugin_sql::Builder::new()
-                .add_migrations("sqlite:mydatabase.db", migrations)
-                .build(),
-        )
         .plugin(tauri_plugin_opener::init())
-        // .invoke_handler(tauri::generate_handler![discover])
+        .invoke_handler(tauri::generate_handler![test_discovery])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 
     println!("Done!");
-
-    Ok(())
 }

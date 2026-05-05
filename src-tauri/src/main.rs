@@ -5,7 +5,8 @@ mod core;
 mod server;
 mod service;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // let mut service = LocalCommService::new("_localcomm._tcp.local.");
     // service.start();
 

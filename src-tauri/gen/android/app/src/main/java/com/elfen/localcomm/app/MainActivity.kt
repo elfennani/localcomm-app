@@ -21,6 +21,7 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    
     val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
     lifecycleScope.launch(Dispatchers.IO) {
@@ -28,7 +29,7 @@ class MainActivity : TauriActivity() {
         downloadDir.absolutePath,
         filesDir.absolutePath
       )
-      
+
       Log.d(TAG, "Service Stopped!")
     }
   }

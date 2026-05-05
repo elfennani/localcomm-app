@@ -42,7 +42,7 @@ impl LocalCommServerApp {
             .add_service(LocalCommServer::new(localcomm))
             .serve(addr);
 
-        Ok(server.await?)
+        Ok(server.await.unwrap())
     }
 
     pub fn new(device_list: SharedLocalCommDeviceList, download_dir: PathBuf) -> Self {
