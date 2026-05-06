@@ -1,14 +1,17 @@
 use crate::core::device::{LocalCommDevice, SharedLocalCommDeviceList};
+use crate::server::localcomm::Device;
 use local_ip_address::local_ip;
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use slugify::slugify;
 use std::sync::{Arc, Mutex};
+use tokio::sync::watch::Sender;
 use tokio::task;
 
 pub struct LocalCommService {
     service_type: String,
     mdns: Arc<ServiceDaemon>,
     pub devices: SharedLocalCommDeviceList,
+    devices_tx: Sender<Vec<LocalCommDevice>>,
 }
 
 /*
@@ -19,10 +22,11 @@ I take it back, it seems discovery works fine in physical Android devices but no
 for some reason.
  */
 impl LocalCommService {
-    pub fn new(service_type: &str) -> Self {
+    pub fn new(tx: Sender<Vec<LocalCommDevice>>, service_type: &str) -> Self {
         let mdns = Arc::new(ServiceDaemon::new().expect("Failed to create daemon"));
 
         LocalCommService {
+            devices_tx: tx,
             service_type: service_type.to_string(),
             mdns,
             devices: Arc::new(Mutex::new(Vec::new())),
@@ -63,7 +67,7 @@ impl LocalCommService {
 
             let mut device_name = whoami::hostname().unwrap();
             if device_name == "localhost" {
-               device_name = "my_device".to_string();
+                device_name = "my_device".to_string();
             }
 
             let instance_name = slugify!(&device_name, separator = "_");
@@ -102,6 +106,7 @@ impl LocalCommService {
         }
         let receiver = mdns.browse(&service_type).expect("Failed to browse");
         let device_list_mutex = self.devices.clone();
+        let tx = self.devices_tx.clone();
 
         task::spawn(async move {
             println!("[SERVICE_DISCOVERY] Discovery started");
@@ -130,7 +135,7 @@ impl LocalCommService {
                             resolved.fullname, device_name
                         );
 
-                        println!("[SERVICE_DISCOVERY] Service resolved: {:?}", resolved,);
+                        println!("[SERVICE_DISCOVERY] Service resolved: {:?}", resolved);
 
                         let mut lock = device_list_mutex.lock().unwrap();
 
@@ -138,8 +143,13 @@ impl LocalCommService {
                             (*lock).push(LocalCommDevice {
                                 name: device_name.to_string(),
                                 address: format!("http://{}:50051", ip_addr),
+                                resolved_host: resolved.fullname,
                             });
                         }
+
+                        // let iter = lock.iter();
+
+                        tx.send(lock.clone()).unwrap();
                     }
                     ServiceEvent::ServiceFound(_, full_name) => {
                         if full_name.starts_with(device_name.as_str()) {
@@ -149,6 +159,12 @@ impl LocalCommService {
                         println!("[SERVICE_DISCOVERY] Service found: {}", full_name);
                     }
                     ServiceEvent::SearchStarted(_) => {}
+                    ServiceEvent::ServiceRemoved(_, fullname) => {
+                        println!("[SERVICE_DISCOVERY] Service removed: {}", fullname);
+                        let mut lock = device_list_mutex.lock().unwrap();
+                        lock.retain(|d| d.resolved_host != fullname);
+                        tx.send(lock.clone()).unwrap();
+                    }
                     other_event => {
                         println!(
                             "[SERVICE_DISCOVERY] Received other event: {:?}",

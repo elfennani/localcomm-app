@@ -21,6 +21,12 @@
   -webkit-text-size-adjust: 100%;
 }
 
+/*noinspection CssUnresolvedCustomProperty*/
+body {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+}
+
 .container {
   margin: 0;
   padding-top: 10vh;

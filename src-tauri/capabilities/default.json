@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "sql:default"
+    "sql:default",
+    "safe-area-insets-css:allow-get-top-inset",
+    "safe-area-insets-css:allow-get-bottom-inset",
+    "safe-area-insets-css:default"
   ]
 }

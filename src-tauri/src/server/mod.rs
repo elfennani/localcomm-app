@@ -1,18 +1,22 @@
-use crate::core::device::SharedLocalCommDeviceList;
+use crate::core::device::{LocalCommDevice, SharedLocalCommDeviceList};
 use crate::server::localcomm::{
     Device, Empty, GetDeviceListRequest, GetDeviceListResponse, RunCommandRequest, SendFileRequest,
     TextTypeRequest,
 };
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use indicatif::{ProgressBar, ProgressStyle};
+use local_ip_address::local_ip;
 use localcomm::local_comm_server::{LocalComm, LocalCommServer};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use local_ip_address::local_ip;
+use tokio::sync::watch::Receiver;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::codegen::tokio_stream::Stream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -20,21 +24,45 @@ pub mod localcomm {
     tonic::include_proto!("localcomm");
 }
 
+impl From<LocalCommDevice> for Device {
+    fn from(device: LocalCommDevice) -> Self {
+        Device{
+            name: device.name,
+            address: device.address,
+            resolved_host: device.resolved_host,
+        }
+    }
+}
+
+impl From<Device> for LocalCommDevice {
+    fn from(device: Device) -> Self {
+        LocalCommDevice{
+            name: device.name,
+            address: device.address,
+            resolved_host: device.resolved_host,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct LocalCommServerApp {
     device_list: SharedLocalCommDeviceList,
+    device_list_rx: Receiver<Vec<LocalCommDevice>>,
     progress_bar: Arc<Mutex<Option<ProgressBar>>>,
     download_dir: PathBuf,
+    app_data_dir: PathBuf,
     uploading_file: Arc<Mutex<Option<File>>>,
 }
 
 impl LocalCommServerApp {
     pub async fn serve(
+        rx: Receiver<Vec<LocalCommDevice>>,
         devices: SharedLocalCommDeviceList,
         download_dir: PathBuf,
+        app_data_dir: PathBuf,
     ) -> Result<(), Box<dyn Error>> {
         let addr = "0.0.0.0:50051".parse()?;
-        let localcomm = LocalCommServerApp::new(devices.clone(), download_dir);
+        let localcomm = LocalCommServerApp::new(rx, devices.clone(), download_dir, app_data_dir);
         let ip = local_ip().unwrap();
 
         println!("LocalComm instance listening on {}:50051", ip);
@@ -45,17 +73,24 @@ impl LocalCommServerApp {
         Ok(server.await.unwrap())
     }
 
-    pub fn new(device_list: SharedLocalCommDeviceList, download_dir: PathBuf) -> Self {
+    pub fn new(
+        rx: Receiver<Vec<LocalCommDevice>>,
+        device_list: SharedLocalCommDeviceList,
+        download_dir: PathBuf,
+        app_data_dir: PathBuf,
+    ) -> Self {
         // let user_dirs = directories::UserDirs::new().expect("cannot get user directories");
         // let download_dir = user_dirs
         //     .download_dir()
         //     .expect("Failed to retrieve download directory");
 
         LocalCommServerApp {
+            device_list_rx: rx,
             device_list,
             progress_bar: Arc::new(Mutex::new(None)),
             uploading_file: Arc::new(Mutex::new(None)),
             download_dir,
+            app_data_dir,
         }
     }
 
@@ -90,6 +125,9 @@ impl LocalCommServerApp {
     }
 }
 
+type DeviceListResult<T> = Result<Response<T>, Status>;
+type ResponseStream = Pin<Box<dyn Stream<Item = Result<GetDeviceListResponse, Status>> + Send>>;
+
 #[tonic::async_trait]
 impl LocalComm for LocalCommServerApp {
     async fn get_device_list(
@@ -105,6 +143,7 @@ impl LocalComm for LocalCommServerApp {
             .map(|d| Device {
                 name: d.name.clone(),
                 address: d.address.clone(),
+                resolved_host: d.resolved_host.clone(),
             })
             .collect();
 
@@ -207,5 +246,40 @@ impl LocalComm for LocalCommServerApp {
         }
 
         Ok(Response::new(Empty {}))
+    }
+
+    type ListenForDevicesStream = ResponseStream;
+
+    async fn listen_for_devices(
+        &self,
+        request: Request<Empty>,
+    ) -> DeviceListResult<Self::ListenForDevicesStream> {
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let mut device_list_rx = self.device_list_rx.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let device_list = device_list_rx.borrow().clone();
+                let response = GetDeviceListResponse { list: device_list.into_iter().map(Device::from).collect() };
+                match tx.send(Result::<_, Status>::Ok(response)).await {
+                    Err(_item) => {
+                        break;
+                    }
+                    _ => {}
+                }
+
+                if device_list_rx.changed().await.is_err() {
+                    break;
+                }
+            }
+
+            println!("\tclient disconnected");
+        });
+
+        let output_stream = ReceiverStream::new(rx);
+
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::ListenForDevicesStream
+        ))
     }
 }

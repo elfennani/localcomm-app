@@ -6,6 +6,7 @@ service LocalComm {
   rpc TypeText (TextTypeRequest) returns (Empty);
   rpc RunCommand (RunCommandRequest) returns (Empty);
   rpc SendFile (stream SendFileRequest) returns (Empty);
+  rpc ListenForDevices (Empty) returns (stream GetDeviceListResponse);
 }
 
 message TextTypeRequest{
@@ -16,6 +17,7 @@ message TextTypeRequest{
 message Device{
   string name = 1;
   string address = 2;
+  string resolved_host = 3;
 }
 
 message GetDeviceListRequest{}
