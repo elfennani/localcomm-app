@@ -1,6 +1,6 @@
 use crate::core::device::LocalCommDevice;
-use crate::server::localcomm::local_comm_client::LocalCommClient;
-use crate::server::localcomm::{Empty, GetDeviceListRequest};
+use crate::localcomm::local_comm_client::LocalCommClient;
+use crate::localcomm::{Empty, GetDeviceListRequest};
 use crate::server::LocalCommServerApp;
 use crate::service::LocalCommService;
 use jni::objects::{JClass, JString};
@@ -19,6 +19,9 @@ use tonic::Request;
 mod core;
 mod server;
 mod service;
+pub mod localcomm {
+    tonic::include_proto!("localcomm");
+}
 
 #[tauri::command]
 async fn test_discovery(text: &str) -> Result<(), ()> {

@@ -1,5 +1,4 @@
 use crate::core::device::{LocalCommDevice, SharedLocalCommDeviceList};
-use crate::server::localcomm::Device;
 use local_ip_address::local_ip;
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use slugify::slugify;

@@ -1,12 +1,17 @@
 use crate::core::device::{LocalCommDevice, SharedLocalCommDeviceList};
-use crate::server::localcomm::{
+use std::env;
+
+use crate::localcomm::local_comm_server::{LocalComm, LocalCommServer};
+use crate::localcomm::{
     Device, Empty, GetDeviceListRequest, GetDeviceListResponse, RunCommandRequest, SendFileRequest,
     TextTypeRequest,
 };
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use indicatif::{ProgressBar, ProgressStyle};
 use local_ip_address::local_ip;
-use localcomm::local_comm_server::{LocalComm, LocalCommServer};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -14,19 +19,18 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
+use tokio::net::TcpStream;
 use tokio::sync::watch::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::codegen::tokio_stream::Stream;
+use tonic::transport::server::TcpIncoming;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
-
-pub mod localcomm {
-    tonic::include_proto!("localcomm");
-}
+use tonic_tls::rustls::TlsIncoming;
 
 impl From<LocalCommDevice> for Device {
     fn from(device: LocalCommDevice) -> Self {
-        Device{
+        Device {
             name: device.name,
             address: device.address,
             resolved_host: device.resolved_host,
@@ -36,7 +40,7 @@ impl From<LocalCommDevice> for Device {
 
 impl From<Device> for LocalCommDevice {
     fn from(device: Device) -> Self {
-        LocalCommDevice{
+        LocalCommDevice {
             name: device.name,
             address: device.address,
             resolved_host: device.resolved_host,
@@ -61,16 +65,41 @@ impl LocalCommServerApp {
         download_dir: PathBuf,
         app_data_dir: PathBuf,
     ) -> Result<(), Box<dyn Error>> {
-        let addr = "0.0.0.0:50051".parse()?;
+        // let addr = "0.0.0.0:50051".parse()?;
         let localcomm = LocalCommServerApp::new(rx, devices.clone(), download_dir, app_data_dir);
         let ip = local_ip().unwrap();
 
         println!("LocalComm instance listening on {}:50051", ip);
         let server = Server::builder()
             .add_service(LocalCommServer::new(localcomm))
-            .serve(addr);
+            .serve_with_incoming(Self::generate_certs());
 
         Ok(server.await.unwrap())
+    }
+
+    fn generate_certs() -> TlsIncoming<TcpStream> {
+        let current_dir = env::current_dir().unwrap();
+        let mut cert_file = current_dir.clone();
+        cert_file.push("server.crt");
+
+        let mut private_key_file = current_dir.clone();
+        private_key_file.push("server.key");
+
+        let certs = CertificateDer::pem_file_iter(cert_file)
+            .unwrap()
+            .map(|cert| cert.unwrap())
+            .collect();
+        let private_key = PrivateKeyDer::from_pem_file(private_key_file).unwrap();
+
+        let config = tokio_rustls::rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, private_key)
+            .unwrap();
+
+        let addr = "0.0.0.0:50051".parse().unwrap();
+        let inc = TlsIncoming::new(TcpIncoming::bind(addr).unwrap(), Arc::new(config));
+
+        inc
     }
 
     pub fn new(
@@ -260,7 +289,9 @@ impl LocalComm for LocalCommServerApp {
         tokio::spawn(async move {
             loop {
                 let device_list = device_list_rx.borrow().clone();
-                let response = GetDeviceListResponse { list: device_list.into_iter().map(Device::from).collect() };
+                let response = GetDeviceListResponse {
+                    list: device_list.into_iter().map(Device::from).collect(),
+                };
                 match tx.send(Result::<_, Status>::Ok(response)).await {
                     Err(_item) => {
                         break;
