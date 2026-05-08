@@ -11,6 +11,7 @@ use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 use tonic::Request;
+use crate::core::ROOT_CA_CERT;
 
 /// An abstract client to communicate with the same device's localcomm server
 pub struct LocalCommAppClient {
@@ -49,12 +50,7 @@ impl LocalCommAppClient {
     fn make_ssl_conn() -> Arc<tokio_rustls::rustls::ClientConfig> {
         let mut root_cert_store = RootCertStore::empty();
 
-        let current_dir = env::current_dir().unwrap();
-        let mut cert_file = current_dir.clone();
-        cert_file.push("rootCA.crt");
-
-        let certs = CertificateDer::pem_file_iter(cert_file)
-            .unwrap()
+        let certs = CertificateDer::pem_slice_iter(ROOT_CA_CERT)
             .map(|cert| cert.unwrap());
 
         root_cert_store.add_parsable_certificates(certs);

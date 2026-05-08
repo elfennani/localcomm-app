@@ -1,5 +1,5 @@
 use crate::core::device::{LocalCommDevice, SharedLocalCommDeviceList};
-use std::env;
+use std::fs;
 
 use crate::localcomm::local_comm_server::{LocalComm, LocalCommServer};
 use crate::localcomm::{
@@ -12,6 +12,8 @@ use local_ip_address::local_ip;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
+use crate::core::cert_gen::{gen_csr, gen_server_cert_key, sign_csr};
+use crate::core::{ROOT_CA_CERT, ROOT_CA_KEY};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -66,24 +68,43 @@ impl LocalCommServerApp {
         app_data_dir: PathBuf,
     ) -> Result<(), Box<dyn Error>> {
         // let addr = "0.0.0.0:50051".parse()?;
-        let localcomm = LocalCommServerApp::new(rx, devices.clone(), download_dir, app_data_dir);
+        let localcomm =
+            LocalCommServerApp::new(rx, devices.clone(), download_dir, app_data_dir.clone());
         let ip = local_ip().unwrap();
 
         println!("LocalComm instance listening on {}:50051", ip);
         let server = Server::builder()
             .add_service(LocalCommServer::new(localcomm))
-            .serve_with_incoming(Self::generate_certs());
+            .serve_with_incoming(Self::generate_certs(app_data_dir.join("certs")));
 
         Ok(server.await.unwrap())
     }
 
-    fn generate_certs() -> TlsIncoming<TcpStream> {
-        let current_dir = env::current_dir().unwrap();
-        let mut cert_file = current_dir.clone();
-        cert_file.push("server.crt");
+    fn generate_certs(certs_dir: PathBuf) -> TlsIncoming<TcpStream> {
+        if !certs_dir.exists() {
+            fs::create_dir(&certs_dir).unwrap();
+        }
 
-        let mut private_key_file = current_dir.clone();
-        private_key_file.push("server.key");
+        let private_key_file = certs_dir.join("server.key");
+
+        if !private_key_file.exists() {
+            gen_server_cert_key(&certs_dir).unwrap();
+        }
+
+        let cert_file = certs_dir.join("server.crt");
+        if !cert_file.exists() {
+            gen_csr(&certs_dir, None).unwrap();
+
+            let root_ca_key = str::from_utf8(ROOT_CA_KEY).unwrap();
+            let root_ca_cert = str::from_utf8(ROOT_CA_CERT).unwrap();
+
+            sign_csr(
+                &certs_dir,
+                root_ca_cert.to_string(),
+                root_ca_key.to_string(),
+            )
+            .unwrap();
+        }
 
         let certs = CertificateDer::pem_file_iter(cert_file)
             .unwrap()
