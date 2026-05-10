@@ -1,17 +1,15 @@
 use crate::core::device::LocalCommDevice;
 use crate::service::LocalCommService;
-use crate::server::LocalCommServerApp;
-use std::path::PathBuf;
+use crate::websocket::payload::EventPayload;
+use crate::websocket::{Server, ServerMessage};
+use std::sync::Arc;
 use tokio::signal::ctrl_c;
 use tokio::sync::watch;
 
 mod core;
-mod server;
 mod service;
-mod client;
-pub mod localcomm {
-    tonic::include_proto!("localcomm");
-}
+
+mod websocket;
 
 #[tokio::main]
 async fn main() {
@@ -31,16 +29,39 @@ async fn main() {
     }
 
     let initial_devices: Vec<LocalCommDevice> = Vec::new();
-    let (tx, rx) = watch::channel(initial_devices);
+    let (tx, mut rx) = watch::channel(initial_devices);
 
     let mut service = LocalCommService::new(tx, "_localcomm._tcp.local.");
     service.start();
 
-    let server =
-        LocalCommServerApp::serve(rx, service.devices.clone(), download_path, app_data_path);
+    let server = Arc::new(Server::new(rx.clone()));
+    let server_clone = server.clone();
+
+    tokio::spawn(async move {
+        loop {
+            let device_list = rx.borrow().clone();
+
+            if let Err(err) = server_clone
+                .send_message(ServerMessage::Event {
+                    payload: EventPayload::DeviceListChanged {
+                        items: device_list.clone(),
+                    },
+                })
+                .await
+            {
+                eprintln!("error sending device list: {}", err);
+            }
+
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+
+        Ok::<(), anyhow::Error>(())
+    });
 
     tokio::select! {
-        _ = server => {},
+        _ = server.serve() => {},
         _ = ctrl_c() => {
             println!("Server terminated");
         },

@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "main"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,12 +17,17 @@ name = "localcomm_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
 name = "localcomm-server"
 path = "src/daemon.rs"
 
 [[bin]]
 name = "localcomm-cli"
 path = "src/cli.rs"
+
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -43,7 +50,6 @@ indicatif = "0.18.4"
 tonic = "*"
 prost = "0.14"
 tonic-prost = "*"
-sqlx = "0.8.6"
 jni = "0.22.4"
 tokio-util = "0.7.18"
 tokio-stream = "0.1.18"
@@ -51,7 +57,11 @@ tauri-plugin-safe-area-insets-css = "0.2.0"
 rustls = { version = "0.24.0-dev.0", features = ["log"] }
 tonic-tls = { version = "0.7.1", default-features = false, features = ["rustls"] }
 tokio-rustls = "0.26.4"
-openssh = "0.11.6"
 openssl = "0.10.79"
-rcgen = { version = "0.14.7", features = ["x509-parser", "pem"] }
-time = "0.3.47"
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+zeromq = "0.6.0"
+anyhow = "*"
+axum = { version = "0.8.9", features = ["default", "ws", "tokio"] }
+futures-util = "0.3.32"
+ezsockets = "0.7.1"
+uuid = { version = "1.23.1", features = ["v4"] }

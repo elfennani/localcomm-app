@@ -1,4 +1,3 @@
-use crate::client::LocalCommAppClient;
 use crate::core::device::LocalCommDevice;
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -12,9 +11,7 @@ pub mod localcomm {
     tonic::include_proto!("localcomm");
 }
 
-mod client;
 mod core;
-mod server;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -51,28 +48,28 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     // let cli = Cli::parse();
 
-    let mut client = LocalCommAppClient::connect("https://0.0.0.0:50051").await;
-    let (tx, mut rx) = watch::channel(Vec::<LocalCommDevice>::new());
-
-    tokio::spawn(async move {
-        client.device_listener(tx, None).await;
-    });
-
-    loop {
-        let list = rx.borrow().clone();
-
-        println!("Device list changed!");
-        list.iter().for_each(|device| {
-            println!("{:?}", device);
-        });
-
-        if rx.changed().await.is_err() {
-            break;
-        }
-    }
+    // let mut client = LocalCommAppClient::connect("https://0.0.0.0:50051").await;
+    // let (tx, mut rx) = watch::channel(Vec::<LocalCommDevice>::new());
+    //
+    // tokio::spawn(async move {
+    //     client.device_listener(tx, None).await;
+    // });
+    //
+    // loop {
+    //     let list = rx.borrow().clone();
+    //
+    //     println!("Device list changed!");
+    //     list.iter().for_each(|device| {
+    //         println!("{:?}", device);
+    //     });
+    //
+    //     if rx.changed().await.is_err() {
+    //         break;
+    //     }
+    // }
 
     // match &cli.command {
     //     Some(Commands::Type {

@@ -2,7 +2,6 @@ import {useEffect, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import '@saurl/tauri-plugin-safe-area-insets-css-api';
 import "./App.css";
-import {listen} from "@tauri-apps/api/event";
 
 invoke("discover").then();
 
@@ -11,19 +10,53 @@ interface Device {
     address: string;
 }
 
+type Response = { type: "Event", payload: unknown } | { type: "Response", uuid: string, result: unknown };
+type Event = {
+    type: "DeviceListChanged",
+    data: { items: Device[] }
+}
+
 function App() {
     const [devices, setDevices] = useState<Device[]>([]);
 
     useEffect(() => {
-        const ev = listen<Device[]>('device-list-changed', (event) => {
-            setDevices(event.payload)
-        });
-        invoke("discover");
+        invoke("get_nearby_devices").then(result => {
+            setDevices(result as Device[]);
+        })
+    }, []);
+
+    useEffect(() => {
+        const socket = new WebSocket("ws://localhost:50051/ws");
+
+        socket.onopen = () => {
+            console.log("connected");
+            socket.send("Hello server");
+        };
+
+        socket.onmessage = ({data}) => {
+            console.log(typeof data, JSON.parse(data))
+
+            const response = JSON.parse(data) as Response;
+            if (response.type == "Event") {
+                const payload = response.payload as Event;
+
+                if (payload.type == "DeviceListChanged") {
+                    setDevices(payload.data.items);
+                }
+            }
+        };
+
+        socket.onerror = (err) => {
+            console.error("WebSocket error:", err);
+        };
+
+        socket.onclose = () => {
+            console.log("disconnected");
+        };
 
         return () => {
-            invoke("cancel_discovery")
-            ev.then(unlisten => unlisten());
-        }
+            socket.close();
+        };
     }, []);
 
     return (
